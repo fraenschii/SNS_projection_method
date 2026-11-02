@@ -2,7 +2,7 @@
 Fenicsx code to run simulations for the stochastic Navier-Stokes equations with multiplicative noise discretized with a finite element projection method.
 The equations are
 ```math
-du +((u\cdot \nabla) u +\nabla p -\nu \Delta u-f) dt = G(u) dW,\quad \mathrm{div} \ u = 0
+du +((u\cdot \nabla) u +\nabla p -\nu \Delta u-f) dt = G(u) dW,\quad \mathrm{div} \ u = 0.
 ```
 
 Implementation of the Chorin projection method scheme with lowest order (P2/P1) Taylor-Hood finite elements for the space discretization. The scheme consists of the following two steps. Here $U_h$ is the finite element space for the velocity approximations and $Q_h$ the space for the pressure approximation.
