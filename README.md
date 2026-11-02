@@ -36,3 +36,12 @@ $$
 $$
 
 Code largely written with Codex/ChatGPT.
+
+deterministic_ns.py : computes an approximation to the deterministic system (setting G(u)=0)
+snsprojection_solver.py : the projection method finite element solver described above
+spatial_refinement.py : to empirically estimate the spatial convergence rates, calls snsprojection_solver.py
+temporal_refinement.py : to empirically estimate the temporal convergence rates, calls snsprojection_solver.py
+vortex_dynamics_data.py : a set of initial data that can be imported
+vortex_monte_carlo.py : computes a sample of the approximation of the stochastic Navier-Stokes equations, the estimated mean and standard deviation/fluctuation, calls snsprojection_solver.py
+
+
