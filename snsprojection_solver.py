@@ -1,5 +1,7 @@
-"""Serial projection method solver that can be called from elsewhere
-This is the scheme as in equations (3.17)-(3.18) in the paper
+"""Projection method solver that can be called from elsewhere
+This is the scheme as in equations (3.14)-(3.18) in the paper: the initial
+data are L2-projected onto U_h (3.14) and then projected onto the discretely
+divergence-free functions (3.16) before the time loop (3.17)-(3.18).
 Taylor-Hood P1/P2 elements are used for the spatial discretization. 
 Everything is based on Fenicsx.
 The default initial datum is the rough vortex sheet. 
@@ -38,8 +40,10 @@ from dolfinx.fem.petsc import (
 from dolfinx.mesh import create_unit_square
 from basix.ufl import element
 from ufl import (
+    SpatialCoordinate,
     TestFunction,
     TrialFunction,
+    as_vector,
     div,
     dot,
     dx,
@@ -64,6 +68,14 @@ def smooth_initial_velocity(x):
     values[0] = np.pi * np.sin(np.pi*x[0])**2 * np.sin(2*np.pi*x[1])
     values[1] = -np.pi * np.sin(2*np.pi*x[0]) * np.sin(np.pi*x[1])**2
     return values
+
+
+def smooth_initial_velocity_ufl(x):
+    """Same field as smooth_initial_velocity, as a UFL expression so that its
+    L2 projection is computed by quadrature of the exact field."""
+    from ufl import sin
+    return as_vector((np.pi * sin(np.pi*x[0])**2 * sin(2*np.pi*x[1]),
+                      -np.pi * sin(2*np.pi*x[0]) * sin(np.pi*x[1])**2))
 
 
 # this is the main solver with default values, solves one path
@@ -150,27 +162,43 @@ def solve_projection(*, n=64, num_steps=2048, T=2.0, viscosity=0.001,
     dW = Constant(mesh, PETSc.ScalarType(0.0))
 
 
-    # Interpolate the initial datum
-    # no additional discrete projection is applied at t=0.
-    if callable(initial_data):
-        u_n.interpolate(initial_data)
-    elif initial_data == "smooth_vortex":
-        u_n.interpolate(smooth_initial_velocity)
+    # Initial data as in (3.14)-(3.16) of the paper. Here we compute
+    # \tilde{u}_h^0 = L2 projection of u_0 onto U_h, (3.14).
+    # The projection step (3.16) that yields u_h^0 follows below, once the
+    # projection solver has been set up.
+
+    x = SpatialCoordinate(mesh)
+    if initial_data is smooth_initial_velocity or (
+            isinstance(initial_data, str) and initial_data == "smooth_vortex"):
+        u0 = smooth_initial_velocity_ufl(x)
+    elif callable(initial_data):
+        # A callable only gives point values: represent it in a higher-degree
+        # space so that the L2 projection onto P2 is not limited by this step.
+        V_init = functionspace(mesh, element("Lagrange", mesh.basix_cell(), 5,
+                                             shape=(mesh.geometry.dim,)))
+        u0 = Function(V_init)
+        u0.interpolate(initial_data)
+    elif initial_data == "vortex_sheet":
+        psi0 = (256 * x[0]**2 * (1-x[0])**2 * x[1]**2 * (1-x[1])**2 * abs(x[1]-0.5))
+        u0 = as_vector((psi0.dx(1), -psi0.dx(0)))
+    elif initial_data in ("same_sign", "mixed_sign"):
+        bumps = resolve_bumps(initial_data)
+        u0 = vortex_expression(mesh, bumps, normalization_scale(bumps))
     else:
-        from ufl import SpatialCoordinate, as_vector
-        if initial_data == "vortex_sheet":
-            x = SpatialCoordinate(mesh)
-            psi0 = (256 * x[0]**2 * (1-x[0])**2 * x[1]**2 * (1-x[1])**2 * abs(x[1]-0.5))
-            u0 = as_vector((psi0.dx(1), -psi0.dx(0)))
-        elif initial_data in ("same_sign", "mixed_sign"):
-            bumps = resolve_bumps(initial_data)
-            u0 = vortex_expression(mesh, bumps, normalization_scale(bumps))
-        else:
-            raise ValueError("Unknown initial_data; use smooth_vortex, vortex_sheet, "
-                             "same_sign, mixed_sign, or a callable x -> values")
-        u_n.interpolate(Expression(u0, V.element.interpolation_points, comm=mesh.comm))
-    set_bc(u_n.x.petsc_vec, bcu)
-    u_tilde.x.array[:] = u_n.x.array[:]
+        raise ValueError("Unknown initial_data; use smooth_vortex, vortex_sheet, "
+                         "same_sign, mixed_sign, or a callable x -> values")
+
+    initial_l2_projection = LinearProblem(
+        inner(u, v) * dx,
+        inner(u0, v) * dx(metadata={"quadrature_degree": 10}),
+        u=u_tilde, bcs=bcu,
+        petsc_options_prefix="initial_l2_projection_",
+        petsc_options={"ksp_type": "cg", "pc_type": "jacobi",
+                       "ksp_rtol": 1e-12, "ksp_atol": 1e-14, "ksp_max_it": 10000,
+                       "ksp_error_if_not_converged": True,},
+        )
+    initial_l2_projection.solve()
+    del initial_l2_projection
 
 
     # define variational problem for the first (prediction) step
@@ -239,6 +267,17 @@ def solve_projection(*, n=64, num_steps=2048, T=2.0, viscosity=0.001,
 
     volume = assemble_scalar(form(Constant(mesh, PETSc.ScalarType(1)) * dx))
     pressure_integral = form(p_n * dx)
+
+    # Initial projection step (3.16): u_h^0 is the projection of \tilde{u}_h^0
+    # onto the discretely divergence-free functions.
+    
+    u_.x.array[:] = u_tilde.x.array[:]
+    projection.solve()
+    corrected.x.array[:] = mixed_solution.x.array[velocity_map]
+    projected_pressure.x.array[:] = mixed_solution.x.array[pressure_map]
+    u_n.interpolate(corrected)
+    p_n.interpolate(projected_pressure)
+    p_n.x.array[:] -= assemble_scalar(pressure_integral) / volume
 
 
     # Solver for step 1

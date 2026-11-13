@@ -215,9 +215,9 @@ def plot_statistics(folder, show=True):
                     ax.set_ylim(0, 1)
                     ax.set_xticks([0, .5, 1])
                     ax.set_yticks([0, .5, 1])
-                    ax.set_xlabel("$x$")
+                    ax.set_xlabel("$x_1$")
                     if j == 0:
-                        ax.set_ylabel("$y$")
+                        ax.set_ylabel("$x_2$")
                 label = ("Velocity fluctuation SD" if field == "velocity" and statistic == "std"
                          else "Speed of mean velocity" if field == "velocity" and statistic == "mean"
                          else "Speed" if field == "velocity"

@@ -121,9 +121,9 @@ def plot_solution(folder, show=True):
                 ax.set_ylim(0, 1)
                 ax.set_xticks([0, .5, 1])
                 ax.set_yticks([0, .5, 1])
-                ax.set_xlabel("$x$")
+                ax.set_xlabel("$x_1$")
                 if j == 0:
-                    ax.set_ylabel("$y$")
+                    ax.set_ylabel("$x_2$")
             if field == "vorticity" and split_initial:
                 fig.colorbar(images[initial[0]], ax=[axes[j] for j in initial],
                              label="Initial (separate scale)", shrink=.75, pad=.02)
